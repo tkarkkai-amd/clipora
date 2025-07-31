@@ -1,0 +1,12 @@
+# torch==2.1.0 - torch is preinstalled in the image
+# bitsandbytes - some issues?
+# wandb - issue with python 3.12?
+tqdm
+open_clip_torch==2.24.0
+accelerate==0.32.0
+peft
+scipy
+datasets[vision]
+# Only for parsing custom datasets:
+tensorflow-cpu
+huggingface-hub

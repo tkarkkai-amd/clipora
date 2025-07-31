@@ -7,10 +7,10 @@ import numpy as np
 import open_clip
 import torch
 from accelerate import Accelerator
-from peft import LoraConfig, get_peft_model
+from peft import LoraConfig, get_peft_model, PeftModel
 from tqdm.auto import tqdm
 
-from clipora.config import TrainConfig, parse_yaml_to_config
+from clipora.config import TrainConfig, parse_yaml_to_config, save_config_to_yaml
 from clipora.data import get_dataloader
 from clipora.lora.inject import inject_linear_attention
 from clipora.scheduler.cosine import cosine_lr
@@ -39,10 +39,13 @@ def evaluate(model, dataloader, config):
     return out
 
 
-def init_model(config: TrainConfig):
+def init_model(config: TrainConfig, lora_adapter_path=None, full_weights_path=None):
+    # lora_adapter_path = checkpoint path.
+    # full_weights_path = if given, dont download pretrained weights, instead load weights from this
+    pretrained = None if full_weights_path is not None else config.pretrained
     model, preprocess_train, _ = open_clip.create_model_and_transforms(
         model_name=config.model_name,
-        pretrained=config.pretrained,
+        pretrained=pretrained,
     )
     model_config = open_clip.get_model_config(config.model_name)
     if config.lora_text:
@@ -59,13 +62,23 @@ def init_model(config: TrainConfig):
             embed_dim=model_config["vision_cfg"]["width"],
             num_heads=config.vision_heads,
         )
-    lora_config = LoraConfig(
-        r=config.lora_rank,
-        lora_alpha=config.lora_alpha,
-        lora_dropout=config.lora_dropout,
-        target_modules=["qkv", "proj"],
-    )
-    model = get_peft_model(model, lora_config)
+
+    if full_weights_path:
+        model.load_state_dict(torch.load(full_weights_path))
+
+    # If not None, load existing loras from here
+    if lora_adapter_path:
+        model = PeftModel.from_pretrained(model, lora_adapter_path)
+
+    else:
+        lora_config = LoraConfig(
+            r=config.lora_rank,
+            lora_alpha=config.lora_alpha,
+            lora_dropout=config.lora_dropout,
+            target_modules=["qkv", "proj"],
+        )
+        model = get_peft_model(model, lora_config)
+
     if config.compile:
         model.compile()
     return model, preprocess_train
@@ -183,6 +196,7 @@ def main(config: TrainConfig):
                                 config.output_dir, f"checkpoint_{global_step}"
                             )
                             model.save_pretrained(save_path)
+                            save_config_to_yaml(config, os.path.join(save_path, "train_config.yaml"))
 
             X, Y = batch
             loss = compute_clip_loss(model, X, Y)
@@ -207,8 +221,9 @@ def main(config: TrainConfig):
     accelerator.wait_for_everyone()
 
     if accelerator.is_local_main_process:
-        save_path = os.path.join(config.output_dir)
+        save_path = os.path.join(config.output_dir, "final")
         model.save_pretrained(save_path)
+        save_config_to_yaml(config, os.path.join(save_path, "train_config.yaml"))
 
     accelerator.print("\n\nTraining completed.\n\n")
     accelerator.end_training()
@@ -221,5 +236,6 @@ if __name__ == "__main__":
         type=str,
         help="The path to the yaml file containing the training configuration.",
     )
+    print(f"Starting clipora training with config: {parser.parse_args().config}")
     config = parse_yaml_to_config(parser.parse_args().config)
     main(config)
