@@ -122,7 +122,7 @@ if __name__ == "__main__":
         raise Exception("Both lora_adapter_path and config cannot be None")
 
     # If None, assume the train config that was used to train the model was saved in the checkpoint folder
-    lora_adapter_path = args.lorapip fre_adapter_path
+    lora_adapter_path = args.lora_adapter_path
     if lora_adapter_path is None:
         print(f"Loading config from: {args.config}")
         config = parse_yaml_to_config(args.config)
