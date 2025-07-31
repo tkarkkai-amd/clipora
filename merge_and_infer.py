@@ -14,6 +14,7 @@ import open_clip
 from peft import get_peft_model, LoraConfig, PeftModel
 from clipora.config import TrainConfig, parse_yaml_to_config, save_config_to_yaml
 from train import get_dataloader, init_model, main as train_main
+import visualize_results
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -90,6 +91,8 @@ def run_inference_comparison(lora_model, preprocess, config):
     lora_eval_loss = evaluate(lora_model, eval_dataloader, config)
     print("Lora eval loss:")
     print(lora_eval_loss)
+    print("Visualizing results...")
+    visualize_results.main(original_model, lora_model, preprocess, config)
 
 
 if __name__ == "__main__":
@@ -139,3 +142,4 @@ if __name__ == "__main__":
     if args.save_full_model_weights:
         save_full_model_weights(lora_model, lora_adapter_path, config, config.output_dir)
     run_inference_comparison(lora_model, preprocess, config)
+
