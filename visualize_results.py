@@ -1,5 +1,7 @@
+import argparse
 import pandas as pd
 import torch
+import os
 import random
 from PIL import Image
 import matplotlib.pyplot as plt
@@ -13,11 +15,20 @@ from clipora.config import parse_yaml_to_config
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def visualize_results(image_path, texts, before, after):
-    # Load an image (left panel)
+def visualize_results(image_path, texts, before, after, output_dir):
+    """Saves an image with a table showing text probabilities before and after LORA fine-tuning.
+
+    texts, before and after have to be the same length
+
+    Args:
+        image_path (str): The path to the input image.
+        texts (list): The list of text prompts.
+        before (list): The probabilities before fine-tuning.
+        after (list): The probabilities after fine-tuning.
+        output_dir (str): The directory where the output image will be saved.
+    """
     img = Image.open(image_path)
 
-    # Normalize values
     norm = Normalize(vmin=0, vmax=1)
 
     # Find max indices
@@ -59,15 +70,19 @@ def visualize_results(image_path, texts, before, after):
             table_ax.add_patch(rect)
             table_ax.text(x + width / 2, y, f"{val:.2f}", ha='center', va='center', fontsize=10, transform=table_ax.transAxes)
 
-    plt.savefig("output_image.png", bbox_inches='tight')
+    plt.savefig(os.path.join(output_dir, "output_image.png"), bbox_inches='tight')
     plt.close()
 
 def main(original_model, lora_model, preprocess, config, csv_path=None):
+    """Display probabilities before and after LORA fine-tuning for 10 random texts 
+    from the evaluation dataset.
+    """
     # === Load CSV and Select Data ===
     csv_path = csv_path or config.eval_dataset
     df = pd.read_csv(csv_path)
     # Get 10 random texts from csv as classes
     classes = df[config.text_col].drop_duplicates().sample(10).tolist()
+    # Get an image which has the first text as the correct one
     correct_text = classes[0]
     img_path = df[df[config.text_col] == correct_text][config.image_col].iloc[0]
     # === Preprocess Inputs ===
@@ -88,11 +103,25 @@ def main(original_model, lora_model, preprocess, config, csv_path=None):
     print("probs after:")
     print(probs_after)
 
-    visualize_results(img_path, classes, probs_before, probs_after)
+    visualize_results(img_path, classes, probs_before, probs_after, config.output_dir)
 
 if __name__ == "__main__":
-    lora_adapter_path = "/workload/vlm-lora-finetune/src/clipora/bridge_output/final/"
-    config = parse_yaml_to_config("/workload/vlm-lora-finetune/src/clipora/bridge_output/final/train_config.yaml")
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--config",
+        type=str,
+        help="The path to the yaml file containing the training configuration.",
+    )
+
+    parser.add_argument(
+        "--lora_adapter_path",
+        type=str,
+        help="The path to the LoRA adapter weights, e.g. checkpoint folder.",
+    )
+
+    args = parser.parse_args()
+    lora_adapter_path = args.lora_adapter_path
+    config = parse_yaml_to_config(args.config)
     lora_model, preprocess = init_model(config, lora_adapter_path=lora_adapter_path)
     # Load the original CLIP model (no LORA)
     original_model, _, _ = open_clip.create_model_and_transforms(

@@ -67,7 +67,6 @@ def get_newest_checkpoint(output_dir):
 def save_full_model_weights(model, lora_adapter_path, config, output_dir):
     # It's not really needed to save the full weights as LORAs purpose is to be able to
     # share them more easily?
-    # Copy used lora weights/settings folder to new location for easier handling
     output_path = os.path.join(lora_adapter_path, "merged_model_weights.pt")
     print(f"Saving merged model weights to {output_path}")
     merged_model = model.merge_and_unload()
@@ -96,13 +95,17 @@ def run_inference_comparison(lora_model, preprocess, config):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description="Run inference comparison between original CLIP model and LORA fine-tuned model.",
+        
+    )
     parser.add_argument(
         "--config",
         type=str,
         required=False,
         default=None,
-        help="The path to the yaml file containing the training configuration.",
+        help="The path to the yaml file containing the training configuration. " \
+        "If not provided, will try to load train_config.yaml from lora_adapter_path",
     )
 
     parser.add_argument(
