@@ -8,5 +8,7 @@ peft
 scipy
 datasets[vision]
 # Only for parsing custom datasets:
-tensorflow-cpu
+fastapi[all]
+python-multipart
+tensorflow
 huggingface-hub

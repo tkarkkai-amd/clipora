@@ -1,4 +1,5 @@
 import logging
+import os
 
 import datasets
 import pandas as pd
@@ -28,6 +29,7 @@ class HFDataset(Dataset):
 class CSVDataset(Dataset):
     def __init__(self, data_location, transforms, image_col, text_col, sep="\t"):
         logging.debug(f"Loading csv data from {data_location}.")
+        self.data_location = data_location
         df = pd.read_csv(data_location, sep=sep)
 
         self.images = df[image_col].tolist()
@@ -39,7 +41,9 @@ class CSVDataset(Dataset):
         return len(self.captions)
 
     def __getitem__(self, idx):
-        images = self.transforms(Image.open(str(self.images[idx])))
+        # image_path is relative to the data location, get real path
+        corrected_image_path = os.path.join(os.path.dirname(self.data_location), str(self.images[idx]))
+        images = self.transforms(Image.open(corrected_image_path))
         texts = tokenize([str(self.captions[idx])])[0]
         return images, texts
 

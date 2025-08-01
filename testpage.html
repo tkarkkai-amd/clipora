@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-gray-50">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Model Training Submission</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="h-full flex items-center justify-center">
+    <div class="max-w-xl w-full bg-white p-8 rounded-xl shadow-lg">
+        <div class="text-center mb-8">
+            <h1 class="text-2xl font-bold text-gray-800">Submit Training Job</h1>
+            <p class="text-gray-500">Provide a YAML configuration and a ZIP file containing the dataset.</p>
+        </div>
+
+        <!--
+          The form is configured to send data to your local server.
+          - action="http://localhost:8080/train": Specifies the endpoint URL.
+          - method="POST": Uses the HTTP POST method as required by the endpoint.
+          - enctype="multipart/form-data": Essential for file uploads. It ensures the file and the form fields are sent correctly.
+        -->
+        <form id="trainingForm" action="http://localhost:8080/train" method="POST" enctype="multipart/form-data" class="space-y-6">
+
+            <!-- YAML Configuration Text Area -->
+            <div>
+                <label for="config_str" class="block text-sm font-medium text-gray-700 mb-1">
+                    YAML Configuration
+                </label>
+                <textarea
+                    id="config_str"
+                    name="config_str"
+                    rows="10"
+                    class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                    placeholder="Paste your YAML configuration here..."
+                    required
+                ></textarea>
+            </div>
+
+            <!-- File Upload Input -->
+            <div>
+                <label for="file" class="block text-sm font-medium text-gray-700 mb-1">
+                    Dataset ZIP File
+                </label>
+                <input
+                    id="file"
+                    name="file"
+                    type="file"
+                    accept=".zip"
+                    class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+                    required
+                >
+            </div>
+
+            <!-- Submission Button -->
+            <div>
+                <button
+                    type="submit"
+                    class="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors"
+                >
+                    Send
+                </button>
+            </div>
+        </form>
+    </div>
+</body>
+</html>
