@@ -2,6 +2,7 @@ import argparse
 import itertools
 import logging
 import os
+import time
 
 import numpy as np
 import open_clip
@@ -14,6 +15,7 @@ from clipora.config import TrainConfig, parse_yaml_to_config, save_config_to_yam
 from clipora.data import get_dataloader
 from clipora.lora.inject import inject_linear_attention
 from clipora.scheduler.cosine import cosine_lr
+import job_db
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +86,7 @@ def init_model(config: TrainConfig, lora_adapter_path=None, full_weights_path=No
     return model, preprocess_train
 
 
-def main(config: TrainConfig):
+def main(config: TrainConfig, job_id: str|None = None):
     logging.basicConfig(level=logging.INFO)
 
     accelerator = Accelerator(
@@ -207,6 +209,8 @@ def main(config: TrainConfig):
             optimizer.step()
             scheduler(global_step)
             progress_bar.update(1)
+            if job_id:
+                job_db.update_job_status(job_id, "training", f"Training at {epoch/(config.epochs * len(train_dataloader))}%")
             global_step += 1
 
             logs = {
@@ -227,6 +231,12 @@ def main(config: TrainConfig):
 
     accelerator.print("\n\nTraining completed.\n\n")
     accelerator.end_training()
+
+def dummy_training(job_id):
+    for i in range(100):
+        print(f"Updating job {job_id} status...")
+        job_db.update_job_status(job_id, "training", f"Training at {i}%")   
+        time.sleep(1) 
 
 
 if __name__ == "__main__":
