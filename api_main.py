@@ -196,13 +196,11 @@ async def classes_inference(
     with open(image_path, "wb") as buffer:
         shutil.copyfileobj(image.file, buffer)
 
-    probabilities, classes_list, image_features, text_features = merge_and_infer.run_single_inference(job_id, image_path, classes_list)
+    probabilities, classes_list = merge_and_infer.run_single_inference(job_id, image_path, classes_list)
 
     return {
         "probabilities": probabilities,
-        "classes": classes_list,
-        "image_features": image_features,
-        "text_features": text_features
+        "classes": classes_list
     }
 
 @app.get("/download_finetuned_model/{job_id}")
