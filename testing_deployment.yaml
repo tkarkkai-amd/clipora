@@ -57,7 +57,6 @@ spec:
               name: ephemeral-storage
             - mountPath: /dev/shm
               name: dshm
-      restartPolicy: Never
       volumes:
         - ephemeral:
             volumeClaimTemplate:

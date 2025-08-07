@@ -3,7 +3,7 @@
 # Will get the base model name from train config and merge it with trained
 # lora adapter weights.
 
-from tkinter import Image
+from PIL import Image
 import torch
 import argparse
 import re
@@ -100,9 +100,10 @@ def run_single_inference(job_id, image_path, classes: list[str]):
     # run inference on a single image using the LORA model
     # gets the finetuned model that was saved in the training job job_id
     job_dict = job_db.get_job(job_id)
-    config_path = os.path.join(job_dict['best_finetuned_model_path'], "clipora_config.yaml")
+    lora_adapter_path = job_dict['best_finetuned_model_path']
+    config_path = os.path.join(lora_adapter_path, "clipora_config.yaml")
     config = parse_yaml_to_config(config_path)
-    lora_model, preprocess = init_model(config, lora_adapter_path=lora_adapter_path)
+    lora_model, preprocess = init_model(config)
     processed_image = preprocess(Image.open(image_path)).unsqueeze(0).to(device)
 
     text_tokens = open_clip.tokenize(classes).to(device)

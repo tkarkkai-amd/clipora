@@ -211,7 +211,8 @@ def main(config: TrainConfig, job_id: str|None = None):
             scheduler(global_step)
             progress_bar.update(1)
             if job_id:
-                job_db.update_job(job_id, status="training", detail=f"Training at {epoch/(config.epochs * len(train_dataloader))}%")
+                percent = int((epoch * len(train_dataloader) + step) / (config.epochs * len(train_dataloader)) * 100)
+                job_db.update_job(job_id, status="training", detail=f"Training at {percent}%")
             global_step += 1
 
             logs = {
