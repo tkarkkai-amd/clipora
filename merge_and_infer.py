@@ -117,7 +117,7 @@ def run_single_inference(job_id, image_path, classes: list[str]):
 
     img_feat = img_feat.squeeze().cpu().numpy().tolist()
     txt_feat = txt_feat.squeeze().cpu().numpy().tolist()
-    return list(probabilities), classes, img_feat, txt_feat
+    return probabilities.tolist(), classes, img_feat, txt_feat
 
 
 if __name__ == "__main__":
