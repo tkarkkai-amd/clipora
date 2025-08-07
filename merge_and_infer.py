@@ -115,6 +115,8 @@ def run_single_inference(job_id, image_path, classes: list[str]):
         txt_feat = lora_model.encode_text(text_tokens)
         probabilities = (img_feat @ txt_feat.T).softmax(dim=-1).squeeze().cpu().numpy()
 
+    img_feat = img_feat.squeeze().cpu().numpy().tolist()
+    txt_feat = txt_feat.squeeze().cpu().numpy().tolist()
     return list(probabilities), classes, img_feat, txt_feat
 
 
