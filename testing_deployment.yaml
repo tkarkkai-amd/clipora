@@ -43,10 +43,6 @@ spec:
           ports:
             - name: http
               containerPort: 8080
-          readinessProbe:
-            httpGet:
-              path: /healthz
-              port: http
           resources:
             requests:
               memory: "128Gi"
@@ -56,16 +52,12 @@ spec:
               memory: "128Gi"
               cpu: "8"
               amd.com/gpu: "1"
-          startupProbe:
-            failureThreshold: 20
-            httpGet:
-              path: /healthz
-              port: http
           volumeMounts:
             - mountPath: /workload
               name: ephemeral-storage
             - mountPath: /dev/shm
               name: dshm
+      restartPolicy: Never
       volumes:
         - ephemeral:
             volumeClaimTemplate:

@@ -67,7 +67,7 @@ def train_job(job_id: str, config: TrainConfig, zip_path: str | None=None):
         config.output_dir = os.path.join(TRAIN_JOB_OUTPUT_DIR, job_id)
 
         job_db.update_job(job_id, status="training", detail="Model training in progress...")
-        train.main(config)
+        train.main(config, job_id)
 
         job_db.update_job(job_id, status="complete", detail="Training finished successfully.")
     except Exception as e:

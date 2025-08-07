@@ -7,8 +7,8 @@ accelerate==0.32.0
 peft
 scipy
 datasets[vision]
-# Only for parsing custom datasets:
 fastapi[all]
 python-multipart
-tensorflow
-huggingface-hub
+# Only for parsing custom datasets:
+# tensorflow
+# huggingface-hub

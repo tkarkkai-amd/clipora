@@ -66,6 +66,7 @@ def update_job(job_id: str, **kwargs: Any):
     if not kwargs:
         return # Nothing to update
 
+    print(f"Updating job {job_id}")
     # Automatically update the 'updated_at' timestamp
     kwargs["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     
