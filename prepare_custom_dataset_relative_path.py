@@ -1,4 +1,6 @@
-"""Helper example script that creates a custom dataset from huggingface sample
+"""NOTE: SHIT SCRIPT LOTS OF HARDCODED STUFF
+
+Helper example script that creates a custom dataset from huggingface sample
 dataset 'dusty-nv/bridge_orig_ep100'. The sample is in tfrecords format and is
 converted to raw images and a CSV with path to image and its expected output (text).
 
@@ -293,7 +295,7 @@ def split_csv_data(input_csv_path, train_csv_path, eval_csv_path, split_percent=
     print(f"  Train CSV saved to: {os.path.abspath(train_csv_path)}")
     print(f"  Eval CSV saved to: {os.path.abspath(eval_csv_path)}")
 
-def main(repo_id, train_csv_path, eval_csv_path, split_percent=80):
+def main(repo_id, train_csv_path, eval_csv_path, split_percent=80, n_episodes=None):
     """
     Main function to process the dataset.
 
@@ -306,6 +308,8 @@ def main(repo_id, train_csv_path, eval_csv_path, split_percent=80):
     debug_first_episode(raw_dataset, features_data)
 
     parsed_dataset = raw_dataset.map(lambda x: parse_bridge_episode(x, features_data))
+    # Output only this many episodes, or all if None
+
     base_output_dir = os.path.dirname(train_csv_path)
     csv_path = os.path.join(base_output_dir, "images_and_instructions.csv")
     try:
@@ -315,6 +319,8 @@ def main(repo_id, train_csv_path, eval_csv_path, split_percent=80):
             writer.writerow(['image_path', 'language_instruction'])
 
             for i, episode in enumerate(parsed_dataset):
+                if n_episodes is not None and i >= n_episodes:
+                    break
                 episode_data = save_episode_images(episode, episode_num=i+1, base_output_dir=base_output_dir)
                 for csv_row in episode_data['csv_data']:
                     writer.writerow(csv_row)
@@ -356,10 +362,10 @@ if __name__ == "__main__":
         config_dict = yaml.safe_load(f)
     # Use config to get the output folder of data from train_dataset variable
     # this way only need to change train_dataset in config to change data folder
-    base_output_dir = os.path.dirname(config_dict['train_dataset'])
+    base_output_dir = "/Users/tman/data/bridge_dataset_small"
     print("Saving custom dataset to: ", base_output_dir)
     os.makedirs(base_output_dir, exist_ok=True)
     if len(os.listdir(base_output_dir)) > 60:
         print(f"Output directory {base_output_dir} already contains >60 files, skipping dataset preparation.")
     else:
-        main(args.repo_id, config_dict['train_dataset'], config_dict['eval_dataset'])
+        main(args.repo_id, config_dict['train_dataset'], config_dict['eval_dataset'], n_episodes=20)

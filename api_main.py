@@ -3,23 +3,31 @@ import yaml
 import time
 import zipfile
 import os
+import re
+import io
 import uuid
 import asyncio
+import shutil
+from typing import Optional, List
 from contextlib import asynccontextmanager
 from concurrent.futures import ProcessPoolExecutor
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, status
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ValidationError
 
 import train
+import merge_and_infer
 import job_db
 from clipora.config import TrainConfig, parse_yaml_to_config
 
-ZIPPED_DATA_EXTRACT_PATH = os.getenv("ZIPPED_DATA_EXTRACT_PATH", "/tmp/extracted_data/")
-FILE_DOWNLOAD_PATH = os.getenv("FILE_DOWNLOAD_PATH", "/tmp/downloaded_data/")
+ZIPPED_DATA_EXTRACT_DIR = os.getenv("ZIPPED_DATA_EXTRACT_PATH", "/tmp/extracted_data/")
+FILE_DOWNLOAD_DIR = os.getenv("FILE_DOWNLOAD_PATH", "/tmp/downloaded_data/")
+TRAIN_JOB_OUTPUT_DIR = os.getenv("TRAIN_JOB_OUTPUT_DIR", "/tmp/trained_models/")
 
-os.makedirs(ZIPPED_DATA_EXTRACT_PATH, exist_ok=True)
-os.makedirs(FILE_DOWNLOAD_PATH, exist_ok=True)
+os.makedirs(ZIPPED_DATA_EXTRACT_DIR, exist_ok=True)
+os.makedirs(FILE_DOWNLOAD_DIR, exist_ok=True)
+os.makedirs(TRAIN_JOB_OUTPUT_DIR, exist_ok=True)
 
 # --- Lifespan Manager for Executor and DB ---
 @asynccontextmanager
@@ -34,28 +42,36 @@ async def lifespan(app: FastAPI):
     app.state.process_pool.shutdown()
 
 # --- (Modified) Background Task (runs in a separate process) ---
-def train_job(job_id: str, config: TrainConfig, zip_path: str):
+def train_job(job_id: str, config: TrainConfig, zip_path: str | None=None):
     """
     This function is CPU-intensive and runs in a separate process.
     It communicates status by calling functions from the `db` module.
     """
-    try:
-        job_db.update_job_status(job_id, "extracting", f"Extracting {os.path.basename(zip_path)}")
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(ZIPPED_DATA_EXTRACT_PATH)
-
+    if zip_path:
+        try:
+            job_db.update_job(job_id, status="extracting", detail=f"Extracting {os.path.basename(zip_path)}")
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(ZIPPED_DATA_EXTRACT_DIR)
+        except Exception as e:
+            job_db.update_job(job_id, status="failed", detail=str(e))
+            return
+        
+        # Change some paths in the config to point to the extracted data path
         train_dataset_fname = os.path.basename(config.train_dataset)
-        config.train_dataset = os.path.join(ZIPPED_DATA_EXTRACT_PATH, train_dataset_fname)
+        config.train_dataset = os.path.join(ZIPPED_DATA_EXTRACT_DIR, train_dataset_fname)
         eval_dataset_fname = os.path.basename(config.eval_dataset)
-        config.eval_dataset = os.path.join(ZIPPED_DATA_EXTRACT_PATH, eval_dataset_fname)
+        config.eval_dataset = os.path.join(ZIPPED_DATA_EXTRACT_DIR, eval_dataset_fname)
+    
+    try:
+        # output trained loras to job specific output dir
+        config.output_dir = os.path.join(TRAIN_JOB_OUTPUT_DIR, job_id)
 
-        job_db.update_job_status(job_id, "training", "Model training in progress...")
-        train.dummy_training(job_id)
-        # train.main(config)
+        job_db.update_job(job_id, status="training", detail="Model training in progress...")
+        train.main(config)
 
-        job_db.update_job_status(job_id, "complete", "Training finished successfully.")
+        job_db.update_job(job_id, status="complete", detail="Training finished successfully.")
     except Exception as e:
-        job_db.update_job_status(job_id, "failed", str(e))
+        job_db.update_job(job_id, status="failed", detail=str(e))
 
 # --- FastAPI App ---
 app = FastAPI(
@@ -67,6 +83,7 @@ app = FastAPI(
 
 origins = [
     "http://localhost",
+    "http://localhost:8080",
     "http://localhost:8000", # If you serve the html with `python -m http.server`
     "null"  # Allow requests from local files (i.e., opening the HTML with file://)
 ]
@@ -83,54 +100,157 @@ app.add_middleware(
 @app.post("/train/", summary="Submit a training job", status_code=status.HTTP_202_ACCEPTED)
 async def train_model(
     config_str: str = Form(..., description="A YAML string for training config."),
-    file: UploadFile = File(..., description="A ZIP file with the dataset.")
+    file: Optional[UploadFile] = File(None, description="A ZIP file with the dataset (required if not using HuggingFace datasets).")
 ):
     job_id = str(uuid.uuid4())
-    
+
     try:
         config_dict = yaml.safe_load(config_str)
         config = TrainConfig(**config_dict)
     except yaml.YAMLError:
         raise HTTPException(status_code=400, detail="Config is not valid YAML.")
-    
-    if file.content_type not in ["application/zip", "application/x-zip-compressed"]:
-        raise HTTPException(status_code=400, detail="Invalid file type. Expected ZIP.")
 
-    save_path = os.path.join(FILE_DOWNLOAD_PATH, f"{job_id}.zip")
-    try:
-        with open(save_path, "wb") as buffer:
-            while chunk := await file.read(1024 * 1024):
-                buffer.write(chunk)
-    finally:
-        await file.close()
+    # Check if file is required based on config.datatype
+    if config.datatype != 'hf':
+        if file is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Custom data requires a ZIP file upload. Set 'datatype' to 'hf' to use HuggingFace datasets."
+            )
+        if file.content_type not in ["application/zip", "application/x-zip-compressed"]:
+            raise HTTPException(status_code=400, detail="Invalid file type. Expected ZIP.")
 
-    # Create the initial job record in the database
+        zip_path = os.path.join(FILE_DOWNLOAD_DIR, f"{job_id}.zip")
+        try:
+            with open(zip_path, "wb") as buffer:
+                while chunk := await file.read(1024 * 1024):
+                    buffer.write(chunk)
+        finally:
+            await file.close()
+    else:
+        zip_path = None  # Not needed for HuggingFace datasets
+
     job_db.create_job(job_id)
 
-    # Submit the job to the process pool
     loop = asyncio.get_running_loop()
     loop.run_in_executor(
         app.state.process_pool,
         train_job,
-        job_id, config, save_path
+        job_id, config, zip_path
     )
-    
+
     return {
         "message": "Training job accepted.",
         "job_id": job_id,
         "status_url": app.url_path_for("get_status", job_id=job_id)
     }
 
-# --- (Modified) Status Endpoint ---
+def _extract_percentage(s):
+    match = re.search(r'(\d+\.?\d*)%', s)
+    return float(match.group(1)) if match else None
+
+def _job_status_return(job_dict):
+    job_dict["progress"] = _extract_percentage(job_dict["detail"]) if job_dict["detail"] else None
+    return job_dict
+
+# --- Job Status Endpoint ---
 @app.get("/status/{job_id}", summary="Get job status", name="get_status")
 async def get_status(job_id: str):
     """
     Polls the database to get the current status of the training job.
     """
+
+    
     job = job_db.get_job(job_id)
     if not job:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found.")
-    return job
+    return _job_status_return(job)
+
+@app.get("/list_jobs/", summary="Return all jobs", name="list_jobs")
+async def list_jobs():
+    """
+    Fetches all jobs from the database.
+    """
+    
+    jobs = job_db.get_all_jobs()
+    if not jobs:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No jobs found.")
+    return [_job_status_return(job) for job in jobs]
+
+@app.post("/inference/", summary="Run inference on a single image with specified classes", name="classes_inference")
+async def classes_inference(
+    job_id: str,
+    image: UploadFile, 
+    classes: str = Form(...)
+):
+    """
+    Accepts an image and a list of class names from a form submission,
+    processes them, and returns the details.
+
+    - **image**: The uploaded image file.
+    - **classes**: A list of strings separated by new lines, used as texts/"classes".
+    """
+    
+    classes_list = [line.strip() for line in classes.split('\n') if line.strip()]
+    image_path = os.path.join("/tmp/", str(uuid.uuid4()) + "_" + image.filename)
+    with open(image_path, "wb") as buffer:
+        shutil.copyfileobj(image.file, buffer)
+
+    probabilities, classes_list, image_features, text_features = merge_and_infer.run_single_inference(job_id, image_path, classes_list)
+
+    return {
+        "probabilities": probabilities,
+        "classes": classes_list,
+        "image_features": image_features,
+        "text_features": text_features
+    }
+
+@app.get("/download_finetuned_model/{job_id}")
+async def download_finetuned_model(job_id: str):
+    """
+    Packages the contents of a specified model folder into a ZIP file
+    and returns it for download.
+    """
+    job = job_db.get_job(job_id)
+    if not job or not job.get("best_finetuned_model_path"):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Job ID '{job_id}' not found or no finetuned model available."
+        )
+    model_folder_path = job["best_finetuned_model_path"]
+    # 2. Validate that the requested directory exists and is actually a directory.
+    if not os.path.isdir(model_folder_path):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Job ID '{job_id}' not found or the associated artifacts are missing."
+        )
+
+    # 3. Create an in-memory binary stream (a virtual file) to hold the ZIP data.
+    # This avoids writing a temporary file to the disk, which is more efficient.
+    zip_io_buffer = io.BytesIO()
+
+    # 4. Create the ZIP file within the in-memory buffer.
+    with zipfile.ZipFile(zip_io_buffer, mode='w', compression=zipfile.ZIP_DEFLATED) as temp_zip_file:
+        for root, _, files in os.walk(model_folder_path):
+            for file in files:
+                file_path = os.path.join(root, file)
+                # Define the name of the file inside the ZIP archive.
+                # os.path.relpath ensures the paths are relative to the model folder,
+                # recreating the directory structure correctly inside the zip.
+                archive_name = os.path.relpath(file_path, model_folder_path)
+                temp_zip_file.write(file_path, arcname=archive_name)
+
+    # 5. Rewind the in-memory buffer to the beginning.
+    zip_io_buffer.seek(0)
+    download_filename = f"{job_id}_model.zip"
+
+    return StreamingResponse(
+        content=zip_io_buffer,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f"attachment; filename={download_filename}"
+        }
+    )
 
 @app.get("/")
 def read_root():

@@ -3,6 +3,7 @@
 # Will get the base model name from train config and merge it with trained
 # lora adapter weights.
 
+from tkinter import Image
 import torch
 import argparse
 import re
@@ -15,6 +16,8 @@ from peft import get_peft_model, LoraConfig, PeftModel
 from clipora.config import TrainConfig, parse_yaml_to_config, save_config_to_yaml
 from train import get_dataloader, init_model, main as train_main
 import visualize_results
+
+import job_db
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -93,6 +96,25 @@ def run_inference_comparison(lora_model, preprocess, config):
     print("Visualizing results...")
     visualize_results.main(original_model, lora_model, preprocess, config)
 
+def run_single_inference(job_id, image_path, classes: list[str]):
+    # run inference on a single image using the LORA model
+    # gets the finetuned model that was saved in the training job job_id
+    job_dict = job_db.get_job(job_id)
+    config_path = os.path.join(job_dict['best_finetuned_model_path'], "clipora_config.yaml")
+    config = parse_yaml_to_config(config_path)
+    lora_model, preprocess = init_model(config, lora_adapter_path=lora_adapter_path)
+    processed_image = preprocess(Image.open(image_path)).unsqueeze(0).to(device)
+
+    text_tokens = open_clip.tokenize(classes).to(device)
+
+    with torch.no_grad():
+        # do we need to normalize these features or smth?
+        img_feat = lora_model.encode_image(processed_image)
+        txt_feat = lora_model.encode_text(text_tokens)
+        probabilities = (img_feat @ txt_feat.T).softmax(dim=-1).squeeze().cpu().numpy()
+
+    return list(probabilities), classes, img_feat, txt_feat
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -137,7 +159,7 @@ if __name__ == "__main__":
 
     if args.config is None:
         print("Trying to load train config from lora adapter/checkpoint path")
-        config_path = os.path.join(lora_adapter_path, "train_config.yaml")
+        config_path = os.path.join(lora_adapter_path, "clipora_config.yaml")
         config = parse_yaml_to_config(config_path)  
 
     print(f"Config output dir: {config.output_dir}, lora adapter path: {lora_adapter_path}")

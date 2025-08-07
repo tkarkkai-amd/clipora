@@ -45,7 +45,7 @@ def init_model(config: TrainConfig, lora_adapter_path=None, full_weights_path=No
     # lora_adapter_path = checkpoint path.
     # full_weights_path = if given, dont download pretrained weights, instead load weights from this
     pretrained = None if full_weights_path is not None else config.pretrained
-    model, preprocess_train, _ = open_clip.create_model_and_transforms(
+    model, preprocess_train, preprocess_val = open_clip.create_model_and_transforms(
         model_name=config.model_name,
         pretrained=pretrained,
     )
@@ -198,7 +198,8 @@ def main(config: TrainConfig, job_id: str|None = None):
                                 config.output_dir, f"checkpoint_{global_step}"
                             )
                             model.save_pretrained(save_path)
-                            save_config_to_yaml(config, os.path.join(save_path, "train_config.yaml"))
+                            job_db.update_job(job_id, best_finetuned_model_path=save_path)
+                            save_config_to_yaml(config, os.path.join(save_path, "clipora_config.yaml"))
 
             X, Y = batch
             loss = compute_clip_loss(model, X, Y)
@@ -210,7 +211,7 @@ def main(config: TrainConfig, job_id: str|None = None):
             scheduler(global_step)
             progress_bar.update(1)
             if job_id:
-                job_db.update_job_status(job_id, "training", f"Training at {epoch/(config.epochs * len(train_dataloader))}%")
+                job_db.update_job(job_id, status="training", detail=f"Training at {epoch/(config.epochs * len(train_dataloader))}%")
             global_step += 1
 
             logs = {
@@ -227,16 +228,17 @@ def main(config: TrainConfig, job_id: str|None = None):
     if accelerator.is_local_main_process:
         save_path = os.path.join(config.output_dir, "final")
         model.save_pretrained(save_path)
-        save_config_to_yaml(config, os.path.join(save_path, "train_config.yaml"))
+        save_config_to_yaml(config, os.path.join(save_path, "clipora_config.yaml"))
 
     accelerator.print("\n\nTraining completed.\n\n")
     accelerator.end_training()
 
 def dummy_training(job_id):
+    # for testing interaction with ui
     for i in range(100):
         print(f"Updating job {job_id} status...")
-        job_db.update_job_status(job_id, "training", f"Training at {i}%")   
-        time.sleep(1) 
+        job_db.update_job(job_id, status="training", detail=f"Training at {i}%")
+        time.sleep(1)
 
 
 if __name__ == "__main__":
