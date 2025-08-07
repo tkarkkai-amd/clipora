@@ -104,6 +104,7 @@ def run_single_inference(job_id, image_path, classes: list[str]):
     config_path = os.path.join(lora_adapter_path, "clipora_config.yaml")
     config = parse_yaml_to_config(config_path)
     lora_model, preprocess = init_model(config)
+    lora_model.to(device)
     processed_image = preprocess(Image.open(image_path)).unsqueeze(0).to(device)
 
     text_tokens = open_clip.tokenize(classes).to(device)
