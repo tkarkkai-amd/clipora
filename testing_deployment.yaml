@@ -40,6 +40,9 @@ spec:
           command: ["sh", "-c"]
           image: "rocm/pytorch:rocm6.4.1_ubuntu24.04_py3.12_pytorch_release_2.7.1"
           imagePullPolicy: "Always"
+          env:
+            - name: "DB_PATH"
+              value: "/workload/clipora/tests/fixtures/training_jobs.db"
           ports:
             - name: http
               containerPort: 8080
