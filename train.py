@@ -199,6 +199,7 @@ def main(config: TrainConfig, job_id: str|None = None):
                             )
                             model.save_pretrained(save_path)
                             job_db.update_job(job_id, best_finetuned_model_path=save_path)
+                            # save the clipora config we used for training for later use and bookkeeping
                             save_config_to_yaml(config, os.path.join(save_path, "clipora_config.yaml"))
 
             X, Y = batch

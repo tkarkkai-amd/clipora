@@ -7,13 +7,14 @@ seed: 1337
 
 device: "cuda"
 # Output directory for finetuned lora weights and config. Will contain checkpoint folders with
-# lora weights and config
+# lora weights and config. Will be rewritten if using API
 output_dir: "/Users/tman/work/bridge_output"
 
 wandb: False
 wandb_project: test-clipora
 
-# Custom CSV dataset. 
+# Custom CSV dataset. If using API these paths will be rewritten to match the 
+# the extracted ZIP file paths
 train_dataset: "/Users/tman/data/bridge_dataset_small/train.csv"
 eval_dataset: "/Users/tman/data/bridge_dataset_small/eval.csv"
 datatype: "csv"

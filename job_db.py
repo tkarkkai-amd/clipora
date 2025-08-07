@@ -20,7 +20,8 @@ def init_db():
     """
     conn = get_db_connection()
     try:
-        # Add new columns here, e.g., 'priority INTEGER'
+        # best_finetuned_model_path is the path to latest checkpoint
+        # folder will contain model weights and config that were saved with hf peft
         conn.execute("""
             CREATE TABLE IF NOT EXISTS jobs (
                 id TEXT PRIMARY KEY,
