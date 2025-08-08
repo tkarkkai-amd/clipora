@@ -21,11 +21,11 @@ import merge_and_infer
 import job_db
 from clipora.config import TrainConfig, parse_yaml_to_config
 
-ZIPPED_DATA_EXTRACT_DIR = os.getenv("ZIPPED_DATA_EXTRACT_PATH", "/tmp/extracted_data/")
+# Folder where user uploaded files like training data zips will be stored
 FILE_DOWNLOAD_DIR = os.getenv("FILE_DOWNLOAD_PATH", "/tmp/downloaded_data/")
+# base folder for training jobs, each job will have its own job id folder
 TRAIN_JOB_OUTPUT_DIR = os.getenv("TRAIN_JOB_OUTPUT_DIR", "/tmp/trained_models/")
 
-os.makedirs(ZIPPED_DATA_EXTRACT_DIR, exist_ok=True)
 os.makedirs(FILE_DOWNLOAD_DIR, exist_ok=True)
 os.makedirs(TRAIN_JOB_OUTPUT_DIR, exist_ok=True)
 
@@ -47,21 +47,26 @@ def train_job(job_id: str, config: TrainConfig, zip_path: str | None=None):
     This function is CPU-intensive and runs in a separate process.
     It communicates status by calling functions from the `db` module.
     """
+    # Create job specific output directory for training data
+    job_training_data_dir = os.path.join(TRAIN_JOB_OUTPUT_DIR, job_id, "training_data")
+    os.makedirs(job_training_data_dir, exist_ok=True)
     if zip_path:
         try:
             job_db.update_job(job_id, status="extracting", detail=f"Extracting {os.path.basename(zip_path)}")
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(ZIPPED_DATA_EXTRACT_DIR)
+                zip_ref.extractall(job_training_data_dir)
         except Exception as e:
             job_db.update_job(job_id, status="failed", detail=str(e))
             return
         
         # Change some paths in the config to point to the extracted data path
-        train_dataset_fname = os.path.basename(config.train_dataset)
-        config.train_dataset = os.path.join(ZIPPED_DATA_EXTRACT_DIR, train_dataset_fname)
-        eval_dataset_fname = os.path.basename(config.eval_dataset)
-        config.eval_dataset = os.path.join(ZIPPED_DATA_EXTRACT_DIR, eval_dataset_fname)
-    
+        config.train_dataset = os.path.join(
+            job_training_data_dir, os.path.basename(config.train_dataset)
+            )
+        config.eval_dataset = os.path.join(
+            job_training_data_dir, os.path.basename(config.eval_dataset)
+        )
+
     try:
         # output trained loras to job specific output dir
         config.output_dir = os.path.join(TRAIN_JOB_OUTPUT_DIR, job_id)
@@ -210,17 +215,20 @@ async def download_finetuned_model(job_id: str):
     and returns it for download.
     """
     job = job_db.get_job(job_id)
-    if not job or not job.get("best_finetuned_model_path"):
+    if not job:
         raise HTTPException(
             status_code=404,
-            detail=f"Job ID '{job_id}' not found or no finetuned model available."
+            detail=f"Job ID '{job_id}' not found in database."
         )
     model_folder_path = job["best_finetuned_model_path"]
+    # if relative path, use TRAIN_JOB_OUTPUT_DIR/job_id/model_folder_path as base
+    if not os.path.isabs(model_folder_path):
+        model_folder_path = os.path.join(TRAIN_JOB_OUTPUT_DIR, job_id, model_folder_path)
     # 2. Validate that the requested directory exists and is actually a directory.
     if not os.path.isdir(model_folder_path):
         raise HTTPException(
             status_code=404,
-            detail=f"Job ID '{job_id}' not found or the associated artifacts are missing."
+            detail=f"Job ID '{job_id}' does not have a valid model folder at '{model_folder_path}'."
         )
 
     # 3. Create an in-memory binary stream (a virtual file) to hold the ZIP data.
@@ -249,6 +257,61 @@ async def download_finetuned_model(job_id: str):
             "Content-Disposition": f"attachment; filename={download_filename}"
         }
     )
+
+@app.post("/upload_finetuned_lora/", summary="Upload a pre-trained LoRA model", status_code=status.HTTP_202_ACCEPTED)
+async def upload_finetuned_lora(
+    file: UploadFile = File(..., description="A ZIP file containing the finetuned LoRA model artifacts.")
+):
+    """
+    Accepts a ZIP file containing a pre-trained model, extracts it,
+    and registers it as a completed job. This allows for using the model
+    for inference without running the training process through this API.
+
+    ZIP file needs to have the model weights and config files, including clipora_config.yaml.
+    clipora_config.yaml is needed so we know the base model
+    """
+    job_id = str(uuid.uuid4())
+    job_db.create_job(job_id, status="uploading", detail="Receiving LoRA model file.")
+
+    if file.content_type not in ["application/zip", "application/x-zip-compressed"]:
+        detail = "Invalid file type. Expected a ZIP file."
+        job_db.update_job(job_id, status="failed", detail=detail)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
+
+    job_uploaded_model_dir = os.path.join(job_id, "uploaded_model")
+    output_dir = os.path.join(TRAIN_JOB_OUTPUT_DIR, job_uploaded_model_dir)
+    os.makedirs(output_dir, exist_ok=True)
+
+    try:
+        job_db.update_job(job_id, status="extracting", detail="Extracting model artifacts from ZIP file.")
+        
+        zip_content = await file.read()
+        with zipfile.ZipFile(io.BytesIO(zip_content), 'r') as zip_ref:
+            zip_ref.extractall(output_dir)
+
+        job_db.update_job(
+            job_id,
+            status="complete",
+            detail="LoRA model successfully uploaded and registered.",
+            # save with the relative path in case job output dir changes later
+            best_finetuned_model_path=job_uploaded_model_dir
+        )
+    except Exception as e:
+        job_db.update_job(job_id, status="failed", detail=f"Failed to process ZIP file: {e}")
+        if os.path.exists(output_dir):
+            shutil.rmtree(output_dir)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred while processing the file: {e}"
+        )
+    finally:
+        await file.close()
+
+    return {
+        "message": "Finetuned LoRA model uploaded and registered successfully.",
+        "job_id": job_id,
+        "status_url": app.url_path_for("get_status", job_id=job_id)
+    }
 
 @app.get("/")
 def read_root():

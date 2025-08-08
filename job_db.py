@@ -3,7 +3,8 @@ import sqlite3
 import datetime
 from typing import Dict, Optional, Any
 
-DB_PATH = os.getenv("DB_PATH", "/tmp/training_jobs.db")
+TRAIN_JOB_OUTPUT_DIR = os.getenv("TRAIN_JOB_OUTPUT_DIR", "/tmp/trained_models/")
+DB_PATH = os.path.join(TRAIN_JOB_OUTPUT_DIR, "training_jobs.db")
 
 def get_db_connection():
     """Establishes a database connection."""

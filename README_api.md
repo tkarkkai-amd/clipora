@@ -49,6 +49,12 @@ curl -X POST "http://localhost:8080/inference/?job_id=db65b5dd-508e-403c-bcee-21
 Slide the green rag in front of the sushi.
 put pear in bowl"
 # Return value should have probabilities and classes
+# Download the finetuned lora layers and config as zip:
+curl http://localhost:8080/download_finetuned_model/db65b5dd-508e-403c-bcee-2116ac27e205 --output downloaded_model.zip
+# You can also upload a ZIP containing clipora config and lora layers, let's try with the downloaded zip:
+curl -X POST "http://localhost:8080/upload_finetuned_lora/" \
+-F "file=@/Users/tman/work/downloaded_model.zip;type=application/zip"
+# the command will create a new job where best_finetuned_lora_path will point to the uploaded folder
 # Clean up if needed:
 kubectl delete -f testing_deployment.yaml
 ```
