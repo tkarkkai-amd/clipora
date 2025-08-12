@@ -114,10 +114,11 @@ def run_single_inference(job_id, image_path, classes: list[str]):
     text_tokens = open_clip.tokenize(classes).to(device)
 
     with torch.no_grad():
-        # do we need to normalize these features or smth?
-        img_feat = lora_model.encode_image(processed_image)
-        txt_feat = lora_model.encode_text(text_tokens)
-        probabilities = (img_feat @ txt_feat.T).softmax(dim=-1).squeeze().cpu().numpy()
+        image_features, text_features, logit_scale = lora_model(processed_image, text_tokens)
+        
+        # Calculate logits using the returned, normalized features
+        logits = logit_scale.exp() * image_features @ text_features.T
+        probabilities = logits.softmax(dim=-1).squeeze().cpu().numpy()
 
     return probabilities.tolist(), classes
 
