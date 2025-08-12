@@ -118,7 +118,8 @@ def run_single_inference(job_id, image_path, classes: list[str]):
         
         # Calculate logits using the returned, normalized features
         logits = logit_scale.exp() * image_features @ text_features.T
-        probabilities = logits.softmax(dim=-1).squeeze().cpu().numpy()
+        stable_logits = logits - logits.max(dim=-1, keepdim=True).values
+        probabilities = stable_logits.softmax(dim=-1).squeeze().cpu().numpy()
 
     return probabilities.tolist(), classes
 
