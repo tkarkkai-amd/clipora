@@ -100,7 +100,11 @@ def run_single_inference(job_id, image_path, classes: list[str]):
     # run inference on a single image using the LORA model
     # gets the finetuned model that was saved in the training job job_id
     job_dict = job_db.get_job(job_id)
+    TRAIN_JOB_OUTPUT_DIR = os.getenv("TRAIN_JOB_OUTPUT_DIR", "/tmp/trained_models/")
     lora_adapter_path = job_dict['best_finetuned_model_path']
+    # If relative path, assume it's relative to TRAIN_JOB_OUTPUT_DIR
+    if not os.path.isabs(lora_adapter_path):
+        lora_adapter_path = os.path.join(TRAIN_JOB_OUTPUT_DIR, job_id, lora_adapter_path)
     config_path = os.path.join(lora_adapter_path, "clipora_config.yaml")
     config = parse_yaml_to_config(config_path)
     lora_model, preprocess = init_model(config, lora_adapter_path=lora_adapter_path)
