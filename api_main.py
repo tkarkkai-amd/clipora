@@ -14,6 +14,7 @@ from concurrent.futures import ProcessPoolExecutor
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, status
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ValidationError
 
 import train
@@ -258,6 +259,11 @@ async def download_finetuned_model(job_id: str):
         }
     )
 
+def extract_zip_from_path_sync(zip_path: str, output_dir: str):
+    """Synchronously extracts a zip file from a path to a directory."""
+    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+        zip_ref.extractall(output_dir)
+
 @app.post("/upload_finetuned_lora/", summary="Upload a pre-trained LoRA model", status_code=status.HTTP_202_ACCEPTED)
 async def upload_finetuned_lora(
     file: UploadFile = File(..., description="A ZIP file containing the finetuned LoRA model artifacts.")
@@ -285,9 +291,12 @@ async def upload_finetuned_lora(
     try:
         job_db.update_job(job_id, status="extracting", detail="Extracting model artifacts from ZIP file.")
         
-        zip_content = await file.read()
-        with zipfile.ZipFile(io.BytesIO(zip_content), 'r') as zip_ref:
-            zip_ref.extractall(output_dir)
+        zip_path = os.path.join(FILE_DOWNLOAD_DIR, f"{job_id}.zip")
+        with open(zip_path, "wb") as buffer:
+            while chunk := await file.read(1024 * 1024):
+                buffer.write(chunk)
+
+        await run_in_threadpool(extract_zip_from_path_sync, zip_path, output_dir)
 
         job_db.update_job(
             job_id,
