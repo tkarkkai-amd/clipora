@@ -113,15 +113,16 @@ def run_single_inference(job_id, image_path, classes: list[str]):
 
     text_tokens = open_clip.tokenize(classes).to(device)
 
-    with torch.no_grad():
-        image_features, text_features, logit_scale = lora_model(processed_image, text_tokens)
-        
-        # Calculate logits using the returned, normalized features
-        logits = logit_scale.exp() * image_features @ text_features.T
-        stable_logits = logits - logits.max(dim=-1, keepdim=True).values
-        probabilities = stable_logits.softmax(dim=-1).squeeze().cpu().numpy()
+    with torch.no_grad(), torch.autocast("cuda"):
+        image_features = lora_model.encode_image(processed_image)
+        text_features = lora_model.encode_text(text_tokens)
+        image_features /= image_features.norm(dim=-1, keepdim=True)
+        text_features /= text_features.norm(dim=-1, keepdim=True)
 
-    return probabilities.tolist(), classes
+        text_probs = (100.0 * image_features @ text_features.T).softmax(dim=-1).cpu().numpy()
+
+    print(text_probs)
+    return text_probs.tolist(), classes
 
 
 if __name__ == "__main__":
