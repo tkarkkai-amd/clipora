@@ -284,7 +284,8 @@ async def upload_finetuned_lora(
         job_db.update_job(job_id, status="failed", detail=detail)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
 
-    job_uploaded_model_dir = os.path.join(job_id, "uploaded_model")
+    model_folder_name = "uploaded_model"
+    job_uploaded_model_dir = os.path.join(job_id, model_folder_name)
     output_dir = os.path.join(TRAIN_JOB_OUTPUT_DIR, job_uploaded_model_dir)
     os.makedirs(output_dir, exist_ok=True)
 
@@ -303,7 +304,7 @@ async def upload_finetuned_lora(
             status="complete",
             detail="LoRA model successfully uploaded and registered.",
             # save with the relative path in case job output dir changes later
-            best_finetuned_model_path=job_uploaded_model_dir
+            best_finetuned_model_path=model_folder_name
         )
     except Exception as e:
         job_db.update_job(job_id, status="failed", detail=f"Failed to process ZIP file: {e}")

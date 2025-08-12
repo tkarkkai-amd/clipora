@@ -194,11 +194,13 @@ def main(config: TrainConfig, job_id: str|None = None):
                         )
                         if eval_loss["eval_loss"] < best_val_loss:
                             best_val_loss = eval_loss["eval_loss"]
+                            checkpoint_name = f"checkpoint_{global_step}"
                             save_path = os.path.join(
-                                config.output_dir, f"checkpoint_{global_step}"
+                                config.output_dir, checkpoint_name
                             )
                             model.save_pretrained(save_path)
-                            job_db.update_job(job_id, best_finetuned_model_path=save_path)
+                            # best_finetuned_model_path saves only the relative path (to job folder)
+                            job_db.update_job(job_id, best_finetuned_model_path=checkpoint_name)
                             # save the clipora config we used for training for later use and bookkeeping
                             save_config_to_yaml(config, os.path.join(save_path, "clipora_config.yaml"))
 
