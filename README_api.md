@@ -4,13 +4,13 @@
 
 Check `api_main.py` for endpoint code.
 
-- `/train`: takes in a YAML string (clipora config) and a ZIP file containing training data. This will start a training run in a separate process. It will save checkpoints of LORA layers in `TRAIN_JOB_OUTPUT_DIR`. The job will update a sqlite database file while training. Returns the job id which can be used to check status of job. Training data must have training and evaluation CSV files with this kind of structure:
+- `/train`: takes in a YAML string (clipora config) and a ZIP file containing training data. This will start a training run in a separate process. It will save checkpoints of LORA layers in `TRAIN_JOB_OUTPUT_DIR`. The job will update a sqlite database file while training. Returns the job id which can be used to check status of job. Training data must have training and evaluation CSV files and the training images with this kind of structure:
 
 ```
 train.csv
 eval.csv
-images/image1.png
-images/image2.png
+path/to/image1.png
+path/to/image2.png
 ...
 ```
 
@@ -18,8 +18,8 @@ Where CSVs look like:
 
 ```
 "image_path","language_instruction"
-"images/image1.png","put the cube on top of the cylinder"
-"images/image2.png","Move the blue spoon to the left burner"
+"path/to/image1.png","put the cube on top of the cylinder"
+"path/to/image2.png","Move the blue spoon to the left burner"
 ...
 ```
 

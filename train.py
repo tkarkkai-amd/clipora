@@ -3,6 +3,7 @@ import itertools
 import logging
 import os
 import time
+from typing import Callable
 
 import numpy as np
 import open_clip
@@ -15,7 +16,6 @@ from clipora.config import TrainConfig, parse_yaml_to_config, save_config_to_yam
 from clipora.data import get_dataloader
 from clipora.lora.inject import inject_linear_attention
 from clipora.scheduler.cosine import cosine_lr
-import job_db
 
 logger = logging.getLogger(__name__)
 
@@ -86,14 +86,21 @@ def init_model(config: TrainConfig, lora_adapter_path=None, full_weights_path=No
     return model, preprocess_train
 
 
-def main(config: TrainConfig, job_id: str|None = None):
+def main(config: TrainConfig, job_callback: Callable|None = None):
+    """Main training loop.
+
+    Args:
+        config (TrainConfig): clipora training config
+        job_callback (Callable | None, optional): A callback function to update job status 
+        each iteration. Used by API. Defaults to None.
+    """
     logging.basicConfig(level=logging.INFO)
 
     accelerator = Accelerator(
         gradient_accumulation_steps=config.gradient_accumulation_steps,
         log_with="wandb" if config.wandb else None,
     )
-
+    
     if accelerator.is_main_process:
         accelerator.print()
         if config.output_dir is not None:
@@ -199,10 +206,10 @@ def main(config: TrainConfig, job_id: str|None = None):
                                 config.output_dir, checkpoint_name
                             )
                             model.save_pretrained(save_path)
-                            # best_finetuned_model_path saves only the relative path (to job folder)
-                            job_db.update_job(job_id, best_finetuned_model_path=checkpoint_name)
+                            if job_callback:
+                                job_callback(best_finetuned_model_path=checkpoint_name)
                             # save the clipora config we used for training for later use and bookkeeping
-                            save_config_to_yaml(config, os.path.join(save_path, "clipora_config.yaml"))
+                            save_config_to_yaml(config, os.path.join(save_path, "train_config.yaml"))
 
             X, Y = batch
             loss = compute_clip_loss(model, X, Y)
@@ -213,9 +220,9 @@ def main(config: TrainConfig, job_id: str|None = None):
             optimizer.step()
             scheduler(global_step)
             progress_bar.update(1)
-            if job_id:
+            if job_callback:
                 percent = int((epoch * len(train_dataloader) + step) / (config.epochs * len(train_dataloader)) * 100)
-                job_db.update_job(job_id, status="training", detail=f"Training at {percent}%")
+                job_callback(status="training", detail=f"Training at {percent}%")
             global_step += 1
 
             logs = {
@@ -232,18 +239,10 @@ def main(config: TrainConfig, job_id: str|None = None):
     if accelerator.is_local_main_process:
         save_path = os.path.join(config.output_dir, "final")
         model.save_pretrained(save_path)
-        save_config_to_yaml(config, os.path.join(save_path, "clipora_config.yaml"))
+        save_config_to_yaml(config, os.path.join(save_path, "train_config.yaml"))
 
     accelerator.print("\n\nTraining completed.\n\n")
     accelerator.end_training()
-
-def dummy_training(job_id):
-    # for testing interaction with ui
-    for i in range(100):
-        print(f"Updating job {job_id} status...")
-        job_db.update_job(job_id, status="training", detail=f"Training at {i}%")
-        time.sleep(1)
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

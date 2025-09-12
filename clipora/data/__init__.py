@@ -41,9 +41,9 @@ class CSVDataset(Dataset):
         return len(self.captions)
 
     def __getitem__(self, idx):
-        # image_path is relative to the data location, get real path
-        corrected_image_path = os.path.join(os.path.dirname(self.data_location), str(self.images[idx]))
-        images = self.transforms(Image.open(corrected_image_path))
+        # use data_location as dir so it also works when image path is relative to data_location
+        image_path = os.path.join(os.path.dirname(self.data_location), str(self.images[idx]))
+        images = self.transforms(Image.open(image_path))
         texts = tokenize([str(self.captions[idx])])[0]
         return images, texts
 

@@ -17,9 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ValidationError
 
-import train
-import merge_and_infer
-import job_db
+import train, merge_and_infer, job_db
 from clipora.config import TrainConfig, parse_yaml_to_config
 
 # Folder where user uploaded files like training data zips will be stored
@@ -73,7 +71,8 @@ def train_job(job_id: str, config: TrainConfig, zip_path: str | None=None):
         config.output_dir = os.path.join(TRAIN_JOB_OUTPUT_DIR, job_id)
 
         job_db.update_job(job_id, status="training", detail="Model training in progress...")
-        train.main(config, job_id)
+        job_callback = job_db.create_job_callback(job_id)
+        train.main(config, job_callback)
 
         job_db.update_job(job_id, status="complete", detail="Training finished successfully.")
     except Exception as e:
@@ -273,8 +272,8 @@ async def upload_finetuned_lora(
     and registers it as a completed job. This allows for using the model
     for inference without running the training process through this API.
 
-    ZIP file needs to have the model weights and config files, including clipora_config.yaml.
-    clipora_config.yaml is needed so we know the base model
+    ZIP file needs to have the model weights and config files, including train_config.yaml.
+    train_config.yaml is needed so we know the base model
     """
     job_id = str(uuid.uuid4())
     job_db.create_job(job_id, status="uploading", detail="Receiving LoRA model file.")

@@ -1,4 +1,4 @@
-# torch==2.1.0 - torch is preinstalled in the image
+# torch==2.1.0 - torch is preinstalled in the image with rocm support
 # bitsandbytes - some issues?
 # wandb - issue with python 3.12?
 tqdm

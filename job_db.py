@@ -104,3 +104,14 @@ def get_all_jobs() -> Optional[list[Dict]]:
         return [dict(row) for row in rows] if rows else []
     finally:
         conn.close()
+
+def create_job_callback(job_id):
+    """Create a job callback function that you can pass to training loop if needed
+
+    Args:
+        job_id (str): The ID of the job to update.
+    """
+    def callback(**kwargs):
+        update_job(job_id, **kwargs)
+
+    return callback

@@ -1,5 +1,5 @@
 # OpenCLIP base model name
-model_name: "ViT-L-14"
+model_name: "ViT-B-16"
 # Use these pretrained weights, provided by OpenCLIP
 pretrained: "datacomp_xl_s13b_b90k"
 compile: False
