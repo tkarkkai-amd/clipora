@@ -175,6 +175,7 @@ def main(config: TrainConfig, job_callback: Callable|None = None):
     )
 
     print("***** Running training *****")
+    print(f"  Using device: {accelerator.device}")
     print(f"  Num Iters = {len(train_dataloader)}")
     print(f"  Num Epochs = {config.epochs}")
     print(f"  Instantaneous batch size per device = {config.batch_size}")

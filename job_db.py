@@ -1,6 +1,7 @@
 import os
 import sqlite3
 import datetime
+import logging
 from typing import Dict, Optional, Any
 
 TRAIN_JOB_OUTPUT_DIR = os.getenv("TRAIN_JOB_OUTPUT_DIR", "/tmp/trained_models/")
@@ -8,7 +9,7 @@ DB_PATH = os.path.join(TRAIN_JOB_OUTPUT_DIR, "training_jobs.db")
 
 def get_db_connection():
     """Establishes a database connection."""
-    print(f"Using sqlite database located in {DB_PATH}")
+    logging.debug(f"Using sqlite database located in {DB_PATH}")
     conn = sqlite3.connect(DB_PATH, timeout=15)
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.row_factory = sqlite3.Row

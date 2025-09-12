@@ -17,7 +17,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ValidationError
 
-import train, merge_and_infer, job_db
+import merge_and_infer, job_db
+from train import main as train_main
 from clipora.config import TrainConfig, parse_yaml_to_config
 
 # Folder where user uploaded files like training data zips will be stored
@@ -72,7 +73,7 @@ def train_job(job_id: str, config: TrainConfig, zip_path: str | None=None):
 
         job_db.update_job(job_id, status="training", detail="Model training in progress...")
         job_callback = job_db.create_job_callback(job_id)
-        train.main(config, job_callback)
+        train_main(config, job_callback)
 
         job_db.update_job(job_id, status="complete", detail="Training finished successfully.")
     except Exception as e:
