@@ -17,9 +17,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def visualize_results(image_path, texts, before, after, output_dir):
     """Saves an image with a table showing text probabilities before and after LORA fine-tuning.
-
     texts, before and after have to be the same length
-
     Args:
         image_path (str): The path to the input image.
         texts (list): The list of text prompts.
@@ -28,49 +26,102 @@ def visualize_results(image_path, texts, before, after, output_dir):
         output_dir (str): The directory where the output image will be saved.
     """
     img = Image.open(image_path)
-
     norm = Normalize(vmin=0, vmax=1)
-
+    
     # Find max indices
     max_before_idx = np.argmax(before)
     max_after_idx = np.argmax(after)
-
-    # Create figure and axes
-    fig, ax = plt.subplots(figsize=(10, 5))
+    
+    # Calculate dynamic column widths based on text length
+    max_text_length = max(len(text) for text in texts)
+    
+    # Adjust column widths dynamically
+    if max_text_length > 50:  # Long text
+        col_widths = [0.6, 0.2, 0.2]  # Give more space to text
+    elif max_text_length > 30:  # Medium text
+        col_widths = [0.5, 0.25, 0.25]
+    else:  # Short text
+        col_widths = [0.4, 0.3, 0.3]  # Original proportions
+    
+    # Create figure with dynamic width
+    fig_width = max(12, max_text_length * 0.15)  # Scale figure width with text length
+    fig, ax = plt.subplots(figsize=(fig_width, max(6, len(texts) * 0.5 + 2)))
     ax.axis('off')
-
-    # Image panel
-    img_ax = fig.add_axes([0.05, 0.1, 0.3, 0.8])
+    
+    # Image panel - adjust based on figure width
+    img_width = min(0.25, 3.0 / fig_width)  # Cap image width but scale with figure
+    img_ax = fig.add_axes([0.05, 0.1, img_width, 0.8])
     img_ax.imshow(img)
     img_ax.axis('off')
-
-    # Table panel
-    table_ax = fig.add_axes([0.4, 0.1, 0.55, 0.8])
+    
+    # Table panel - use remaining space
+    table_start = 0.05 + img_width + 0.05
+    table_width = 0.9 - table_start
+    table_ax = fig.add_axes([table_start, 0.1, table_width, 0.8])
     table_ax.axis('off')
-
+    
+    # Calculate positions
+    x_positions = np.cumsum([0] + col_widths[:-1])
+    
     # Table headers
     headers = ["Text", "Before", "After"]
-    col_widths = [0.4, 0.3, 0.3]
-    x_positions = np.cumsum([0] + col_widths[:-1])
-
     for i, header in enumerate(headers):
-        table_ax.text(x_positions[i], 1, header, ha='left', va='bottom', fontsize=12, weight='bold', transform=table_ax.transAxes)
-
+        table_ax.text(x_positions[i], 1, header, ha='left', va='bottom', 
+                     fontsize=12, weight='bold', transform=table_ax.transAxes)
+    
+    # Calculate row height based on number of items
+    row_height = min(0.08, 0.7 / len(texts))  # Dynamic row height
+    
     # Draw cells
     for i, (text, b, a) in enumerate(zip(texts, before, after)):
-        y = 0.9 - i * 0.08
-        table_ax.text(x_positions[0], y, text, ha='left', va='center', fontsize=10, transform=table_ax.transAxes)
-
+        y = 0.9 - i * row_height
+        
+        # Handle long text with wrapping
+        if len(text) > 40:
+            # Split long text into multiple lines
+            words = text.split()
+            lines = []
+            current_line = ""
+            max_chars_per_line = int(40 * col_widths[0] / 0.4)  # Scale with column width
+            
+            for word in words:
+                if len(current_line + " " + word) <= max_chars_per_line:
+                    current_line += " " + word if current_line else word
+                else:
+                    if current_line:
+                        lines.append(current_line)
+                    current_line = word
+            if current_line:
+                lines.append(current_line)
+            
+            # Display multiline text
+            for j, line in enumerate(lines):
+                table_ax.text(x_positions[0], y - j * 0.02, line, ha='left', va='center', 
+                             fontsize=9, transform=table_ax.transAxes)
+        else:
+            # Display single line text
+            table_ax.text(x_positions[0], y, text, ha='left', va='center', 
+                         fontsize=10, transform=table_ax.transAxes)
+        
+        # Draw probability boxes
         for j, val in enumerate([b, a], start=1):
             color = plt.cm.Blues(norm(val)) if j == 1 else plt.cm.Reds(norm(val))
             x = x_positions[j]
             width = col_widths[j]
-            rect = patches.Rectangle((x, y - 0.03), width, 0.06, transform=table_ax.transAxes,
-                                    color=color, ec='red' if (j == 1 and i == max_before_idx) or (j == 2 and i == max_after_idx) else 'black', lw=1.5)
+            
+            # Highlight max values with red border
+            edge_color = 'red' if (j == 1 and i == max_before_idx) or (j == 2 and i == max_after_idx) else 'black'
+            
+            rect = patches.Rectangle((x, y - row_height/2 + 0.01), width, row_height - 0.02, 
+                                   transform=table_ax.transAxes,
+                                   color=color, ec=edge_color, lw=1.5)
             table_ax.add_patch(rect)
-            table_ax.text(x + width / 2, y, f"{val:.2f}", ha='center', va='center', fontsize=10, transform=table_ax.transAxes)
-
-    plt.savefig(os.path.join(output_dir, "output_image.png"), bbox_inches='tight')
+            
+            table_ax.text(x + width / 2, y, f"{val:.2f}", ha='center', va='center', 
+                         fontsize=10, color='white' if val > 0.5 else 'black',  # Better contrast
+                         weight='bold', transform=table_ax.transAxes)
+    
+    plt.savefig(os.path.join(output_dir, "output_image.png"), bbox_inches='tight', dpi=150)
     plt.close()
 
 def main(original_model, lora_model, preprocess, config, csv_path=None):
