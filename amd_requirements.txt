@@ -7,8 +7,10 @@ accelerate==0.32.0
 peft
 scipy
 datasets[vision]
+# Used for creating example dataset
+tensorflow
+pillow
+huggingface-hub
+# For API
 fastapi[all]
 python-multipart
-# Only for parsing custom datasets:
-# tensorflow
-# huggingface-hub
