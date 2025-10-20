@@ -3,23 +3,23 @@
 # Will get the base model name from train config and merge it with trained
 # lora adapter weights.
 
-from PIL import Image
-import torch
 import argparse
-import re
-import yaml
 import os
+import re
 import shutil
-from safetensors.torch import load_file
-import open_clip
-from peft import get_peft_model, LoraConfig, PeftModel
-from clipora.config import TrainConfig, parse_yaml_to_config, save_config_to_yaml
-from train import get_dataloader, init_model, main as train_main
-import visualize_results
 
-import job_db
+import open_clip
+import torch
+import visualize_results
+from clipora.config import TrainConfig, parse_yaml_to_config, save_config_to_yaml
+from peft import LoraConfig, PeftModel, get_peft_model
+from PIL import Image
+from safetensors.torch import load_file
+from train import get_dataloader, init_model
+from train import main as train_main
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 def compute_clip_loss(model, X, Y):
     loss = open_clip.ClipLoss()
@@ -51,7 +51,7 @@ def get_newest_checkpoint(output_dir):
     files = os.listdir(output_dir)
 
     # Filter for checkpoint files and extract their numbers
-    checkpoint_pattern = re.compile(r'^checkpoint_(\d+)$')
+    checkpoint_pattern = re.compile(r"^checkpoint_(\d+)$")
     checkpoints = []
 
     for file in files:
@@ -67,6 +67,7 @@ def get_newest_checkpoint(output_dir):
 
     return os.path.join(output_dir, latest_checkpoint[1])
 
+
 def save_full_model_weights(model, lora_adapter_path, config, output_dir):
     # It's not really needed to save the full weights as LORAs purpose is to be able to
     # share them more easily?
@@ -74,6 +75,7 @@ def save_full_model_weights(model, lora_adapter_path, config, output_dir):
     print(f"Saving merged model weights to {output_path}")
     merged_model = model.merge_and_unload()
     torch.save(merged_model.state_dict(), output_path)
+
 
 def run_inference_comparison(lora_model, preprocess, config):
     print("Running inference comparison...")
@@ -83,7 +85,7 @@ def run_inference_comparison(lora_model, preprocess, config):
         model_name=config.model_name,
         pretrained=config.pretrained,
     )
-    
+
     original_model = original_model.to(device)
     lora_model = lora_model.to(device)
     eval_dataloader = get_dataloader(config, preprocess, "val")
@@ -96,15 +98,19 @@ def run_inference_comparison(lora_model, preprocess, config):
     print("Visualizing results...")
     visualize_results.main(original_model, lora_model, preprocess, config)
 
-def run_single_inference(job_id, image_path, classes: list[str]):
+
+def run_single_inference(job_dict, image_path, classes: list[str]):
     # run inference on a single image using the LORA model
     # gets the finetuned model that was saved in the training job job_id
-    job_dict = job_db.get_job(job_id)
+    if not job_dict:
+        print("No job info provided")
+        return None, None
+
     TRAIN_JOB_OUTPUT_DIR = os.getenv("TRAIN_JOB_OUTPUT_DIR", "/tmp/trained_models/")
-    lora_adapter_path = job_dict['best_finetuned_model_path']
+    lora_adapter_path = job_dict["best_finetuned_model_path"]
     # If relative path, assume it's relative to TRAIN_JOB_OUTPUT_DIR
     if not os.path.isabs(lora_adapter_path):
-        lora_adapter_path = os.path.join(TRAIN_JOB_OUTPUT_DIR, job_id, lora_adapter_path)
+        lora_adapter_path = os.path.join(TRAIN_JOB_OUTPUT_DIR, job_dict["id"], lora_adapter_path)
     config_path = os.path.join(lora_adapter_path, "train_config.yaml")
     config = parse_yaml_to_config(config_path)
     lora_model, preprocess = init_model(config, lora_adapter_path=lora_adapter_path)
@@ -128,29 +134,28 @@ def run_single_inference(job_id, image_path, classes: list[str]):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Run inference comparison between original CLIP model and LORA fine-tuned model.",
-        
     )
     parser.add_argument(
         "--config",
         type=str,
         required=False,
         default=None,
-        help="The path to the yaml file containing the training configuration. " \
+        help="The path to the yaml file containing the training configuration. "
         "If not provided, will try to load train_config.yaml from lora_adapter_path",
     )
 
     parser.add_argument(
         "--save_full_model_weights",
         action="store_true",
-        help="Save pytorch merged model weights. Often not needed if you use pretrained CLIP and trained LORAs"
-        )
+        help="Save pytorch merged model weights. Often not needed if you use pretrained CLIP and trained LORAs",
+    )
 
     parser.add_argument(
         "--lora_adapter_path",
         type=str,
         required=False,
         help="The path to the LoRA adapter weights, e.g. checkpoint. If not provided, will use newest checkpoint",
-        default=None
+        default=None,
     )
 
     args = parser.parse_args()
@@ -164,16 +169,17 @@ if __name__ == "__main__":
         print(f"Loading config from: {args.config}")
         config = parse_yaml_to_config(args.config)
         # By default, load latest checkpoint
-        lora_adapter_path = args.lora_adapter_path if args.lora_adapter_path else get_newest_checkpoint(config.output_dir)
+        lora_adapter_path = (
+            args.lora_adapter_path if args.lora_adapter_path else get_newest_checkpoint(config.output_dir)
+        )
 
     if args.config is None:
         print("Trying to load train config from lora adapter/checkpoint path")
         config_path = os.path.join(lora_adapter_path, "train_config.yaml")
-        config = parse_yaml_to_config(config_path)  
+        config = parse_yaml_to_config(config_path)
 
     print(f"Config output dir: {config.output_dir}, lora adapter path: {lora_adapter_path}")
     lora_model, preprocess = init_model(config, lora_adapter_path=lora_adapter_path)
     if args.save_full_model_weights:
         save_full_model_weights(lora_model, lora_adapter_path, config, config.output_dir)
     run_inference_comparison(lora_model, preprocess, config)
-

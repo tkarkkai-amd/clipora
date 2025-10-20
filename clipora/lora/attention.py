@@ -24,12 +24,10 @@ class InjectedMultiHeadAttention(nn.Module):
         self.dropout = dropout
         self.batch_first = batch_first
         self.head_dim = embed_dim // num_heads
-        assert (
-            self.head_dim * num_heads == self.embed_dim
-        ), "embed_dim must be divisible by num_heads"
+        assert self.head_dim * num_heads == self.embed_dim, "embed_dim must be divisible by num_heads"
 
         if not self._qkv_same_embed_dim:
-            assert NotImplementedError
+            raise NotImplementedError
         else:
             self.qkv = nn.Linear(embed_dim, embed_dim * 3, bias=bias)
         self.scaled_dot_product_attention = F.scaled_dot_product_attention
@@ -76,13 +74,7 @@ class InjectedMultiHeadAttention(nn.Module):
 
         E = query.size(-1)
         qkv = self.qkv(query)
-        qkv = (
-            qkv.unflatten(-1, (3, E))
-            .unsqueeze(0)
-            .transpose(0, -2)
-            .squeeze(-2)
-            .contiguous()
-        )
+        qkv = qkv.unflatten(-1, (3, E)).unsqueeze(0).transpose(0, -2).squeeze(-2).contiguous()
         q, k, v = qkv[0], qkv[1], qkv[2]
 
         attn_mask = F._canonical_mask(
@@ -110,9 +102,7 @@ class InjectedMultiHeadAttention(nn.Module):
                         f"The shape of the 3D attn_mask is {attn_mask.shape}, but should be {correct_3d_size}."
                     )
             else:
-                raise RuntimeError(
-                    f"attn_mask's dimension {attn_mask.dim()} is not supported"
-                )
+                raise RuntimeError(f"attn_mask's dimension {attn_mask.dim()} is not supported")
 
         if attn_mask is not None:
             if attn_mask.size(0) == 1 and attn_mask.dim() == 3:
@@ -130,12 +120,8 @@ class InjectedMultiHeadAttention(nn.Module):
         k = k.view(bsz, self.num_heads, src_len, self.head_dim)
         v = v.view(bsz, self.num_heads, src_len, self.head_dim)
 
-        attn_output = self.scaled_dot_product_attention(
-            q, k, v, attn_mask, dropout_p, is_causal
-        )
-        attn_output = (
-            attn_output.permute(2, 0, 1, 3).contiguous().view(bsz * tgt_len, embed_dim)
-        )
+        attn_output = self.scaled_dot_product_attention(q, k, v, attn_mask, dropout_p, is_causal)
+        attn_output = attn_output.permute(2, 0, 1, 3).contiguous().view(bsz * tgt_len, embed_dim)
         attn_output = self.proj(attn_output)
         attn_output = attn_output.view(tgt_len, bsz, attn_output.size(1))
         if self.batch_first and is_batched:

@@ -166,7 +166,7 @@
                 if (isFinished) {
                     clearInterval(jobIntervals.get(jobId));
                     jobIntervals.delete(jobId);
-                    
+
                     progressBar.style.width = '100%'; // Fill bar on completion
                     if (data.status.toLowerCase() === 'completed') {
                         statusText.classList.add('text-green-600');

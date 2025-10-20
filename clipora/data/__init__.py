@@ -43,7 +43,10 @@ class CSVDataset(Dataset):
     def __getitem__(self, idx):
         # use data_location as dir so it also works when image path is relative to data_location
         image_path = os.path.join(os.path.dirname(self.data_location), str(self.images[idx]))
-        images = self.transforms(Image.open(image_path))
+        with Image.open(image_path) as img:
+            img = img.convert("RGB")  # Ensure RGB before transform
+            images = self.transforms(img)
+
         texts = tokenize([str(self.captions[idx])])[0]
         return images, texts
 
@@ -73,7 +76,9 @@ def get_dataloader(args, preprocess, split="train"):
         num_workers=args.workers,
         pin_memory=True,
         drop_last=True,
+        prefetch_factor=2,
     )
+
     dataloader.num_samples = num_samples
     dataloader.num_batches = len(dataloader)
     return dataloader

@@ -8,16 +8,18 @@ This is only used as a preparation step for a single example to show how a custo
 for openCLIP finetuning looks like.
 """
 
-from huggingface_hub import hf_hub_download
-import tensorflow as tf
-import os
-import numpy as np
-import random
-import json
-import csv
-import yaml
 import argparse
+import csv
+import json
+import os
+import random
+
+import numpy as np
+import tensorflow as tf
+import yaml  # type: ignore[import-untyped]
+from huggingface_hub import hf_hub_download
 from PIL import Image
+
 
 def get_tfrecord_dataset(repo_id="dusty-nv/bridge_orig_ep100"):
     # TODO: how to make it so we don't need to hardcode filenames here
@@ -43,7 +45,7 @@ def get_tfrecord_dataset(repo_id="dusty-nv/bridge_orig_ep100"):
 
     raw_dataset = tf.data.TFRecordDataset(tfrecord_files)
     # features.json contains tfrecord schema
-    with open(features_json_path, 'r') as f:
+    with open(features_json_path, "r") as f:
         features_data = json.load(f)
 
     return raw_dataset, features_data
@@ -53,48 +55,48 @@ def build_feature_description_from_json(features_data):
     # Map dtype strings to TensorFlow dtypes
     # Note: VarLenFeature doesn't support bool, so we use int64 and convert later
     dtype_mapping = {
-        'float32': tf.float32,
-        'int64': tf.int64,
-        'bool': tf.int64,  # Parse as int64, convert to bool later
-        'string': tf.string,
-        'uint8': tf.uint8
+        "float32": tf.float32,
+        "int64": tf.int64,
+        "bool": tf.int64,  # Parse as int64, convert to bool later
+        "string": tf.string,
+        "uint8": tf.uint8,
     }
-    
+
     # Keep track of fields that should be converted to bool after parsing
     bool_fields = set()
-    
+
     feature_description = {}
     reshape_info = {}
-    
+
     def process_features(features_dict, prefix=""):
         """Recursively process features dictionary"""
         for key, feature_spec in features_dict["features"].items():
             full_key = f"{prefix}/{key}" if prefix else key
-            
+
             if feature_spec["pythonClassName"] == "tensorflow_datasets.core.features.text_feature.Text":
                 if prefix and "steps" in prefix:  # Variable length sequence
                     feature_description[full_key] = tf.io.VarLenFeature(tf.string)
                 else:  # Fixed length
                     feature_description[full_key] = tf.io.FixedLenFeature([], tf.string)
-                    
+
             elif feature_spec["pythonClassName"] == "tensorflow_datasets.core.features.scalar.Scalar":
                 dtype_str = feature_spec["tensor"]["dtype"]
                 tf_dtype = dtype_mapping.get(dtype_str, tf.string)
-                
+
                 # Track boolean fields for later conversion
                 if dtype_str == "bool":
                     bool_fields.add(full_key)
-                
+
                 if prefix and "steps" in prefix:  # Variable length sequence
                     feature_description[full_key] = tf.io.VarLenFeature(tf_dtype)
                 else:  # Fixed length
                     feature_description[full_key] = tf.io.FixedLenFeature([], tf_dtype)
-                    
+
             elif feature_spec["pythonClassName"] == "tensorflow_datasets.core.features.tensor_feature.Tensor":
                 tensor_info = feature_spec["tensor"]
                 dtype_str = tensor_info["dtype"]
                 tf_dtype = dtype_mapping.get(dtype_str, tf.string)
-                
+
                 # Extract shape information
                 if "shape" in tensor_info and "dimensions" in tensor_info["shape"]:
                     shape = [int(dim) for dim in tensor_info["shape"]["dimensions"]]
@@ -109,100 +111,102 @@ def build_feature_description_from_json(features_data):
                         feature_description[full_key] = tf.io.VarLenFeature(tf_dtype)
                     else:
                         feature_description[full_key] = tf.io.FixedLenFeature([], tf_dtype)
-                        
+
             elif feature_spec["pythonClassName"] == "tensorflow_datasets.core.features.image_feature.Image":
                 # Images are stored as encoded strings (PNG/JPEG)
                 if prefix and "steps" in prefix:
                     feature_description[full_key] = tf.io.VarLenFeature(tf.string)
                 else:
                     feature_description[full_key] = tf.io.FixedLenFeature([], tf.string)
-                    
+
             elif feature_spec["pythonClassName"] == "tensorflow_datasets.core.features.features_dict.FeaturesDict":
                 # Recursively process nested features
                 process_features(feature_spec["featuresDict"], full_key)
-                
+
             elif feature_spec["pythonClassName"] == "tensorflow_datasets.core.features.dataset_feature.Dataset":
                 # Process sequence features with "steps" prefix to indicate variable length
                 sequence_feature = feature_spec["sequence"]["feature"]
                 if "featuresDict" in sequence_feature:
                     process_features(sequence_feature["featuresDict"], full_key)
-    
+
     # Process the root features
     process_features(features_data["featuresDict"])
-    
+
     return feature_description, reshape_info, bool_fields
+
 
 def parse_bridge_episode(example_proto, features_data):
     """Parse a Bridge dataset episode using features.json schema"""
-    
+
     feature_description, reshape_info, bool_fields = build_feature_description_from_json(features_data)
-    
+
     parsed = tf.io.parse_single_example(example_proto, feature_description)
-    
+
     # Convert sparse tensors to dense
     for key in parsed:
         if isinstance(parsed[key], tf.SparseTensor):
             parsed[key] = tf.sparse.to_dense(parsed[key])
-    
+
     # Convert int64 fields back to bool where appropriate
     for key in bool_fields:
         if key in parsed:
             parsed[key] = tf.cast(parsed[key], tf.bool)
-    
+
     # For debugging: let's check if the data is already properly shaped
     # and avoid reshaping if it's not needed
     if reshape_info:
-        step_keys = [k for k in parsed.keys() if k.startswith('steps/')]
+        step_keys = [k for k in parsed.keys() if k.startswith("steps/")]
         if step_keys:
             reference_key = next(k for k in step_keys if k in parsed)
             num_steps = tf.shape(parsed[reference_key])[0]
-            
+
             for key, original_shape in reshape_info.items():
                 if key in parsed:
                     current_tensor = parsed[key]
                     current_shape = tf.shape(current_tensor)
-                    
+
                     # Check if already has the right shape (might be [num_steps, feature_size] already)
                     if len(original_shape) == 1:  # 1D feature like [7]
                         expected_shape = [num_steps, original_shape[0]]
-                        
+
                         # If current shape matches expected, no reshaping needed
                         # If it's flattened [num_steps * feature_size], reshape it
                         if tf.rank(current_tensor) == 1:
                             # It's flattened, try to reshape
                             total_elements = tf.size(current_tensor)
                             feature_size = original_shape[0]
-                            
+
                             # Only reshape if the math works out
                             if tf.math.equal(total_elements % feature_size, 0):
                                 inferred_num_steps = total_elements // feature_size
                                 parsed[key] = tf.reshape(current_tensor, [inferred_num_steps, feature_size])
-    
+
     return parsed
+
 
 def save_episode_images(parsed_example, episode_num, base_output_dir):
     """Save images and create CSV file for an episode"""
-    
+
     # Create episode directory
     episode_dir = f"episode_{episode_num:04d}"
     # episode_dir = os.path.join(base_output_dir, episode_str)
     os.makedirs(os.path.join(base_output_dir, episode_dir), exist_ok=True)
-    
+
     # Get language instruction (should be the same for all steps in episode)
-    language_instructions = parsed_example['steps/language_instruction']
+    language_instructions = parsed_example["steps/language_instruction"]
     if len(language_instructions) > 0:
-        instructions = [inst.numpy().decode('utf-8') for inst in language_instructions]
-    
+        instructions = [inst.numpy().decode("utf-8") for inst in language_instructions]
+
     # Get images and already properly shaped action/state tensors
-    images = parsed_example['steps/observation/image']
-    actions = parsed_example['steps/action']
-    states = parsed_example['steps/observation/state']
-    
+    images = parsed_example["steps/observation/image"]
+    actions = parsed_example["steps/action"]
+    states = parsed_example["steps/observation/state"]
+
     num_steps = len(images)
-    
+
     # Prepare CSV data
     csv_data = []
-    
+
     # Save each image and record in CSV
     for step_idx in range(num_steps):
         # Decode image
@@ -211,48 +215,50 @@ def save_episode_images(parsed_example, episode_num, base_output_dir):
         # Save image as PNG
         image_filename = f"step_{step_idx:04d}.png"
         image_path = os.path.join(episode_dir, image_filename)
-        
+
         # Convert to PIL Image and save
         pil_image = Image.fromarray(image.numpy())
         pil_image.save(os.path.join(base_output_dir, image_path))
-        
+
         # Add to CSV data
         csv_data.append([image_path, instruction])
-    
+
     print(f"Saved {num_steps} images to {episode_dir}")
-    
+
     return {
-        'instructions': instructions,
-        'num_steps': num_steps,
-        'actions': actions.numpy(),  # Already correctly shaped
-        'states': states.numpy(),   # Already correctly shaped
-        'episode_dir': episode_dir,
-        'csv_data': csv_data
+        "instructions": instructions,
+        "num_steps": num_steps,
+        "actions": actions.numpy(),  # Already correctly shaped
+        "states": states.numpy(),  # Already correctly shaped
+        "episode_dir": episode_dir,
+        "csv_data": csv_data,
     }
+
 
 # Create a simple test to see what we're getting
 def debug_first_episode(raw_dataset, features_data):
     """Debug function to see the raw shapes before processing"""
     feature_description, reshape_info, bool_fields = build_feature_description_from_json(features_data)
-    
+
     # Parse one example without reshaping
     for raw_example in raw_dataset.take(1):
         parsed = tf.io.parse_single_example(raw_example, feature_description)
-        
+
         # Convert sparse tensors to dense
         for key in parsed:
             if isinstance(parsed[key], tf.SparseTensor):
                 parsed[key] = tf.sparse.to_dense(parsed[key])
-        
+
         print("Raw parsed shapes and info:")
         for key, tensor in parsed.items():
             print(f"  {key}: shape={tensor.shape}, size={tf.size(tensor).numpy()}")
-        
-        print(f"\nReshape info from features.json:")
+
+        print("\nReshape info from features.json:")
         for key, shape in reshape_info.items():
             print(f"  {key}: expected shape per step = {shape}")
-        
+
         break
+
 
 def split_csv_data(input_csv_path, train_csv_path, eval_csv_path, split_percent=80):
     """Generate 'train.csv' and 'eval.csv' from input CSV file.
@@ -262,7 +268,7 @@ def split_csv_data(input_csv_path, train_csv_path, eval_csv_path, split_percent=
         raise ValueError("split_percent must be between 1 and 99 (exclusive).")
 
     all_rows = []
-    with open(input_csv_path, 'r', newline='', encoding='utf-8') as infile:
+    with open(input_csv_path, "r", newline="", encoding="utf-8") as infile:
         reader = csv.reader(infile)
         header = next(reader)  # Read the header row
         for row in reader:
@@ -277,23 +283,24 @@ def split_csv_data(input_csv_path, train_csv_path, eval_csv_path, split_percent=
     eval_data = all_rows[num_train_rows:]
 
     # Write to train.csv
-    with open(train_csv_path, 'w', newline='', encoding='utf-8') as train_file:
+    with open(train_csv_path, "w", newline="", encoding="utf-8") as train_file:
         writer = csv.writer(train_file, quoting=csv.QUOTE_ALL)
         writer.writerow(header)  # Write the header
         writer.writerows(train_data)
 
     # Write to eval.csv
-    with open(eval_csv_path, 'w', newline='', encoding='utf-8') as eval_file:
+    with open(eval_csv_path, "w", newline="", encoding="utf-8") as eval_file:
         writer = csv.writer(eval_file, quoting=csv.QUOTE_ALL)
         writer.writerow(header)  # Write the header
         writer.writerows(eval_data)
 
-    print(f"Data split complete:")
+    print("Data split complete:")
     print(f"  Total rows: {num_rows}")
     print(f"  Training rows ({split_percent}%): {len(train_data)}")
     print(f"  Evaluation rows ({100 - split_percent}%): {len(eval_data)}")
     print(f"  Train CSV saved to: {os.path.abspath(train_csv_path)}")
     print(f"  Eval CSV saved to: {os.path.abspath(eval_csv_path)}")
+
 
 def main(repo_id, train_csv_path, eval_csv_path, split_percent=80, n_episodes=None):
     """
@@ -313,21 +320,21 @@ def main(repo_id, train_csv_path, eval_csv_path, split_percent=80, n_episodes=No
     base_output_dir = os.path.dirname(train_csv_path)
     csv_path = os.path.join(base_output_dir, "images_and_instructions.csv")
     try:
-        with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
+        with open(csv_path, "w", newline="", encoding="utf-8") as csvfile:
             writer = csv.writer(csvfile, quoting=csv.QUOTE_ALL)
             # Write the header row
-            writer.writerow(['image_path', 'language_instruction'])
+            writer.writerow(["image_path", "language_instruction"])
 
             for i, episode in enumerate(parsed_dataset):
                 if n_episodes is not None and i >= n_episodes:
                     break
-                episode_data = save_episode_images(episode, episode_num=i+1, base_output_dir=base_output_dir)
-                for csv_row in episode_data['csv_data']:
+                episode_data = save_episode_images(episode, episode_num=i + 1, base_output_dir=base_output_dir)
+                for csv_row in episode_data["csv_data"]:
                     writer.writerow(csv_row)
 
         print(f"Successfully generated {csv_path}")
         # Split the generated CSV into training and validation sets
-        if (0 < split_percent < 100):
+        if 0 < split_percent < 100:
             print(f"Splitting CSV data into train and eval sets with split percent: {split_percent}")
             split_csv_data(csv_path, train_csv_path, eval_csv_path, split_percent=split_percent)
         else:
@@ -347,7 +354,7 @@ if __name__ == "__main__":
         "--repo_id",
         type=str,
         default="dusty-nv/bridge_orig_ep100",
-        help="The Hugging Face repository ID to pull the dataset from."
+        help="The Hugging Face repository ID to pull the dataset from.",
     )
 
     parser.add_argument(
@@ -368,4 +375,4 @@ if __name__ == "__main__":
     if len(os.listdir(base_output_dir)) > 60:
         print(f"Output directory {base_output_dir} already contains >60 files, skipping dataset preparation.")
     else:
-        main(args.repo_id, config_dict['train_dataset'], config_dict['eval_dataset'], n_episodes=20)
+        main(args.repo_id, config_dict["train_dataset"], config_dict["eval_dataset"], n_episodes=20)

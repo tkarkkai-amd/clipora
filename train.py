@@ -9,13 +9,12 @@ import numpy as np
 import open_clip
 import torch
 from accelerate import Accelerator
-from peft import LoraConfig, get_peft_model, PeftModel
-from tqdm.auto import tqdm
-
 from clipora.config import TrainConfig, parse_yaml_to_config, save_config_to_yaml
 from clipora.data import get_dataloader
 from clipora.lora.inject import inject_linear_attention
 from clipora.scheduler.cosine import cosine_lr
+from peft import LoraConfig, PeftModel, get_peft_model
+from tqdm.auto import tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -86,12 +85,12 @@ def init_model(config: TrainConfig, lora_adapter_path=None, full_weights_path=No
     return model, preprocess_train
 
 
-def main(config: TrainConfig, job_callback: Callable|None = None):
+def main(config: TrainConfig, job_callback: Callable | None = None):
     """Main training loop.
 
     Args:
         config (TrainConfig): clipora training config
-        job_callback (Callable | None, optional): A callback function to update job status 
+        job_callback (Callable | None, optional): A callback function to update job status
         each iteration. Used by API. Defaults to None.
     """
     logging.basicConfig(level=logging.INFO)
@@ -100,7 +99,7 @@ def main(config: TrainConfig, job_callback: Callable|None = None):
         gradient_accumulation_steps=config.gradient_accumulation_steps,
         log_with="wandb" if config.wandb else None,
     )
-    
+
     if accelerator.is_main_process:
         accelerator.print()
         if config.output_dir is not None:
@@ -132,9 +131,7 @@ def main(config: TrainConfig, job_callback: Callable|None = None):
         try:
             import bitsandbytes as bnb
         except ImportError:
-            raise ImportError(
-                "To use 8-bit Adam, please install the bitsandbytes library: `pip install bitsandbytes`."
-            )
+            raise ImportError("To use 8-bit Adam, please install the bitsandbytes library: `pip install bitsandbytes`.")
 
         optimizer_class = bnb.optim.AdamW8bit
     else:
@@ -161,17 +158,13 @@ def main(config: TrainConfig, job_callback: Callable|None = None):
     total_steps = train_dataloader.num_batches * config.epochs
     # if args.warmup is float, it is a percentage of total_steps
     if isinstance(config.warmup, float):
-        assert (
-            0 <= config.warmup <= 1
-        ), "Warmup must be between 0 and 1 if not a fixed number of steps."
+        assert 0 <= config.warmup <= 1, "Warmup must be between 0 and 1 if not a fixed number of steps."
         config.warmup = int(config.warmup * total_steps)
 
     scheduler = cosine_lr(optimizer, config.learning_rate, config.warmup, total_steps)
 
-    model, optimizer, scheduler, train_dataloader, eval_dataloader = (
-        accelerator.prepare(
-            model, optimizer, scheduler, train_dataloader, eval_dataloader
-        )
+    model, optimizer, scheduler, train_dataloader, eval_dataloader = accelerator.prepare(
+        model, optimizer, scheduler, train_dataloader, eval_dataloader
     )
 
     print("***** Running training *****")
@@ -197,15 +190,11 @@ def main(config: TrainConfig, job_callback: Callable|None = None):
                     if accelerator.is_local_main_process:
                         eval_loss = evaluate(model, eval_dataloader, config)
                         accelerator.log(eval_loss, step=global_step)
-                        progress_bar.write(
-                            f"Step: {global_step}, Eval loss: {eval_loss['eval_loss']}"
-                        )
+                        progress_bar.write(f"Step: {global_step}, Eval loss: {eval_loss['eval_loss']}")
                         if eval_loss["eval_loss"] < best_val_loss:
                             best_val_loss = eval_loss["eval_loss"]
                             checkpoint_name = f"checkpoint_{global_step}"
-                            save_path = os.path.join(
-                                config.output_dir, checkpoint_name
-                            )
+                            save_path = os.path.join(config.output_dir, checkpoint_name)
                             model.save_pretrained(save_path)
                             if job_callback:
                                 job_callback(best_finetuned_model_path=checkpoint_name)
@@ -244,6 +233,7 @@ def main(config: TrainConfig, job_callback: Callable|None = None):
 
     accelerator.print("\n\nTraining completed.\n\n")
     accelerator.end_training()
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

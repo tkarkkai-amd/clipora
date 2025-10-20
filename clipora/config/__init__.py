@@ -1,6 +1,6 @@
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 
 @dataclass
@@ -57,8 +57,9 @@ def parse_yaml_to_config(yaml_path: str) -> TrainConfig:
         config_dict = yaml.safe_load(f)
     return TrainConfig(**config_dict)
 
+
 def save_config_to_yaml(config: TrainConfig, filepath: str):
     """Save a TrainConfig dataclass instance to a YAML file."""
     config_dict = asdict(config, dict_factory=dict)
-    with open(filepath, 'w') as f:
+    with open(filepath, "w") as f:
         yaml.dump(config_dict, f, default_flow_style=False, indent=2)
